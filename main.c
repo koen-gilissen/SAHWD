@@ -18,7 +18,7 @@
 #define NumberOfCommands 16
 
 typedef enum{ red, green, blue, yellow, magenta, cyan, white, black } color;
-typedef enum{init, idle, clearConfig, sendCommand, configMode} fsmState;
+typedef enum{init, idle, clearConfig, sendCommand, configInit, configMode} fsmState;
 
 void StackEventHandler(uint32 event, void *eventParam);
 void setLedColor(color x);
@@ -102,8 +102,7 @@ int main(void)
             else if(commandRequestByClient)
                 state = sendCommand;
             else if(configInitRequestByClient)
-                state = configMode;
-            
+                state = configInit;
             break;
             case clearConfig:
                 isConfigPresent = 0;
@@ -123,17 +122,26 @@ int main(void)
                 state = idle;
                 commandRequestByClient = 0;
                 break;
+             case configInit:
+                SERIAL_PutString("config INIT Mode\r\n");
+                giveMeNextChar = 0;
+                commandIndex = 0;
+                 updateIsConfigPresent(0);
+                state = configMode;
+                break;
              case configMode:
                 if(giveMeNextChar){
                     SERIAL_PutString("CONFIG Mode\r\n");
                     if(configInitRequestByClient)
                     {
-                        sprintf(serialData, "Command to gatt db = %d\r\n", commandList[commandIndex]);
+                        sprintf(serialData, "Command to gatt db %d = %c\r\n", commandIndex, commandList[commandIndex]);
                         SERIAL_PutString(serialData);
                         updatenextChar(commandList[commandIndex]);
+                        commandIndex++;
                     }
                     else
                     {
+                        updatenextChar(commandList[NumberOfCommands-1]);
                         configInitRequestByClient = 0;
                         SERIAL_PutString("Config MODE Finished!\r\n");  
                         state = idle;
@@ -198,6 +206,7 @@ void StackEventHandler(uint32 event, void *eventParam)
             else if(CYBLE_CONFIGINIT_CUSTOM_CHARACTERISTIC_CHAR_HANDLE == wrReqParam->handleValPair.attrHandle)
             {
                 configInitRequestByClient = 1;
+                commandIndex = 0;
                 SERIAL_PutString("config init request Received\r\n");      
             }
             (void)CyBle_GattsWriteRsp(((CYBLE_GATTS_WRITE_REQ_PARAM_T *)eventParam)->connHandle);
@@ -266,19 +275,14 @@ void StackEventHandler(uint32 event, void *eventParam)
         case CYBLE_EVT_GATTS_READ_CHAR_VAL_ACCESS_REQ:
             SERIAL_PutString("BLE read Event\r\n");
             readReqParam = (CYBLE_GATTS_CHAR_VAL_READ_REQ_T *) eventParam;
-            sprintf(serialData, "Attribute Handle number = %d\r\n", readReqParam->attrHandle);
             SERIAL_PutString(serialData);
             if(CYBLE_NEXTCHAR_CUSTOM_CHARACTERISTIC_CHAR_HANDLE == readReqParam->attrHandle && state == configMode){
                 SERIAL_PutString("next char read access\r\n");
                 giveMeNextChar = 1;
-                if(commandIndex < NumberOfCommands)
-                {
-                    commandIndex++;
-                }
-                else
+                if(commandIndex >= NumberOfCommands - 1)
                 {
                     configInitRequestByClient = 0;
-                    commandIndex = 0;
+                    giveMeNextChar = 1;
                 }
                 sprintf(serialData, "Command Index = %d\r\n", commandIndex);
                 SERIAL_PutString(serialData);
